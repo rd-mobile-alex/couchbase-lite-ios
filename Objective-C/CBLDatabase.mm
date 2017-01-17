@@ -20,7 +20,7 @@
 #import "CBLCoreBridge.h"
 #import "CBLStringBytes.h"
 #import "CBLMisc.h"
-
+#import "CBLBlobStore.h"
 
 @implementation CBLDatabaseOptions
 
@@ -51,7 +51,7 @@
 }
 
 
-@synthesize c4db=_c4db;
+@synthesize c4db=_c4db, blobStore = _blobStore;
 
 
 static const C4DatabaseConfig kDBConfig = {
@@ -119,6 +119,17 @@ static void logCallback(C4LogDomain domain, C4LogLevel level, C4Slice message) {
     _c4db = c4db_open(bPath, &config, &err);
     if (!_c4db)
         return convertError(err, outError);
+    
+    NSString* attachmentsPath = [[_options.directory stringByAppendingPathComponent:@"attachments"] stringByAppendingString:@"/"];
+    if (![self setupDirectory: attachmentsPath
+               fileProtection: _options.fileProtection
+                        error: outError])
+        return NO;
+    
+    _blobStore = [[CBLBlobStore alloc] initWithPath:attachmentsPath flags:config.flags encryptionKey:&config.encryptionKey error:outError];
+    if(!_blobStore) {
+        return NO;
+    }
     
     _documents = [NSMapTable strongToWeakObjectsMapTable];
     _unsavedDocuments = [NSMutableSet setWithCapacity: 100];

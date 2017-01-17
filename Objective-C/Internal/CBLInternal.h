@@ -11,6 +11,10 @@
 #import "Fleece.h"
 #import "CBLDatabase.h"
 #import "CBLDocument.h"
+#import "CBLBlob.h"
+#include "c4BlobStore.h"
+
+@class CBLBlobStore;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -19,6 +23,7 @@ NS_ASSUME_NONNULL_BEGIN
 @interface CBLDatabase ()
 
 @property (readonly, nonatomic) C4Database* c4db;
+@property (readonly, nonatomic) CBLBlobStore* blobStore;
 @property (readonly, nonatomic) NSString* path;     // For unit tests
 
 - (void) document: (CBLDocument*)doc hasUnsavedChanges: (bool)unsaved;
@@ -52,6 +57,13 @@ NS_ASSUME_NONNULL_BEGIN
                             docID: (NSString*)docID
                         mustExist: (BOOL)mustExist
                             error: (NSError**)outError;
+
+@end
+
+@interface CBLBlob ()
+
+- (BOOL)install:(C4BlobStore *)store error:(NSError **)error;
+
 @end
 
 
