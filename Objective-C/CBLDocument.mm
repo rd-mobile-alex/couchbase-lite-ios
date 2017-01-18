@@ -197,10 +197,6 @@
     
     if (!self.hasChanges && !deletion && [self exists])
         return YES;
-
-    if(![self translateAndStoreBlobs:outError]) {
-        return NO;
-    }
     
     C4Transaction transaction(_c4db);
     if (!transaction.begin())
@@ -219,12 +215,11 @@
         put.revFlags = kDeleted;
     if (propertiesToSave.count > 0) {
         auto enc = c4db_createFleeceEncoder(_c4db);
-        FLEncoder_WriteNSObject(enc, propertiesToSave);
-        FLError flErr;
-        auto body = FLEncoder_Finish(enc, &flErr);
+        auto body = [self encodeWith:enc error:outError];
         FLEncoder_Free(enc);
         if (!body.buf)
-            return convertError(flErr, outError);
+            return NO;
+        
         put.body = {body.buf, body.size};
         docTypeSlice = self[@"type"];
         put.docType = docTypeSlice;
