@@ -20,7 +20,12 @@
 #import "CBLCoreBridge.h"
 #import "CBLStringBytes.h"
 #import "CBLMisc.h"
+#include "c4Observer.h"
 
+NSString* const kCBLDatabaseChangeNotification = @"CBLDatabaseChangeNotification";
+NSString* const kCBLDatabaseChangesUserInfoKey = @"CBLDatbaseChangesUserInfoKey";
+NSString* const kCBLDatabaseLastSequenceUserInfoKey = @"CBLDatabaseLastSequenceUserInfoKey";
+NSString* const kCBLDatabaseIsExternalUserInfoKey = @"CBLDatabaseIsExternalUserInfoKey";
 
 @implementation CBLDatabaseOptions
 
@@ -46,6 +51,7 @@
     NSString* _name;
     CBLDatabaseOptions* _options;
     C4Database* _c4db;
+    C4DatabaseObserver* _obs;
     NSMapTable<NSString*, CBLDocument*>* _documents;
     NSMutableSet<CBLDocument*>* _unsavedDocuments;
 }
@@ -65,6 +71,13 @@ static void logCallback(C4LogDomain domain, C4LogLevel level, C4Slice message) {
     static const char* klevelNames[5] = {"Debug", "Verbose", "Info", "WARNING", "ERROR"};
     NSLog(@"CouchbaseLite %s %s: %.*s", c4log_getDomainName(domain), klevelNames[level],
           (int)message.size, (char*)message.buf);
+}
+
+static void dbObserverCallback(C4DatabaseObserver* obs, void* context) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        CBLDatabase *db = (__bridge CBLDatabase *)context;
+        [db postDatabaseChanged];
+    });
 }
 
 
@@ -120,6 +133,7 @@ static void logCallback(C4LogDomain domain, C4LogLevel level, C4Slice message) {
     if (!_c4db)
         return convertError(err, outError);
     
+    _obs = c4dbobs_create(_c4db, dbObserverCallback, (__bridge void *)self);
     _documents = [NSMapTable strongToWeakObjectsMapTable];
     _unsavedDocuments = [NSMutableSet setWithCapacity: 100];
     
@@ -203,7 +217,9 @@ static void logCallback(C4LogDomain domain, C4LogLevel level, C4Slice message) {
         return convertError(err, outError);
     
     c4db_free(_c4db);
+    c4dbobs_free(_obs);
     _c4db = nullptr;
+    _obs = nullptr;
     
     return YES;
 }
@@ -219,6 +235,9 @@ static void logCallback(C4LogDomain domain, C4LogLevel level, C4Slice message) {
     C4Error err;
     if (!c4db_delete(_c4db, &err))
         return convertError(err, outError);
+    
+    c4dbobs_free(_obs);
+    _obs = nullptr;
     _c4db = nullptr;
     return true;
 }
@@ -254,6 +273,8 @@ static void logCallback(C4LogDomain domain, C4LogLevel level, C4Slice message) {
     
     if (!transaction.commit())
         return convertError(transaction.error(), outError);
+    
+    [self postDatabaseChanged];
     return true;
 }
 
@@ -329,6 +350,35 @@ static NSString* databasePath(NSString* name, NSString* dir) {
     return path.stringByStandardizingPath;
 }
 
+- (void)postDatabaseChanged {
+    if (!_obs || !_c4db || c4db_isInTransaction(_c4db))
+        return;
+    
+    
+    const uint32_t maxChanges = 100u;
+    C4Slice c4docIDs[maxChanges];
+    C4SequenceNumber lastSequence;
+    bool external = false;
+    uint32_t changes = 0u;
+    NSMutableArray* docIDs = [NSMutableArray new];
+    do {
+        bool newExternal;
+        changes = c4dbobs_getChanges(_obs, c4docIDs, maxChanges, &lastSequence, &newExternal);
+        if(changes == 0 || external != newExternal || docIDs.count > 1000) {
+            NSDictionary *userInfo = @{kCBLDatabaseChangesUserInfoKey: docIDs,
+                                       kCBLDatabaseLastSequenceUserInfoKey: @(lastSequence),
+                                       kCBLDatabaseIsExternalUserInfoKey: @(external)};
+            [[NSNotificationCenter defaultCenter] postNotificationName:kCBLDatabaseChangeNotification object:self userInfo:userInfo];
+            docIDs = [NSMutableArray new];
+        }
+        
+        external = newExternal;
+        for(int i = 0; i < changes; i++) {
+            [docIDs addObject:slice2string(c4docIDs[i])];
+        }
+        
+    } while(changes > 0);
+}
 
 #pragma mark - PRIVATE: DOCUMENT
 

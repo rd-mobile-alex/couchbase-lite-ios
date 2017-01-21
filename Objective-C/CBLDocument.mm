@@ -18,11 +18,23 @@
 #import "CBLStringBytes.h"
 #import "CBLJSON.h"
 #import "CBLInternal.h"
+#include "c4Observer.h"
 
+NSString* const kCBLDocumentChangeNotification = @"CBLDocumentChangeNotification";
+NSString* const kCBLDocumentIDUserInfoKey = @"CBLDocumentIDUserInfoKey";
+NSString* const kCBLDocumentSeqUserInfoKey = @"CBLDocumentSeqUserInfoKey";
+
+static void docObserverCallback(C4DocumentObserver* obs, C4Slice docID, uint64_t sequence, void* context) {
+    NSDictionary *userInfo = @{kCBLDocumentIDUserInfoKey:slice2string(docID),
+                               kCBLDocumentSeqUserInfoKey:@(sequence)};
+    CBLDocument* doc = (__bridge CBLDocument*)context;
+    [[NSNotificationCenter defaultCenter] postNotificationName:kCBLDocumentChangeNotification object:doc userInfo:userInfo];
+}
 
 @implementation CBLDocument {
     C4Database* _c4db;
     C4Document* _c4doc;
+    C4DocumentObserver* _obs;
 }
 
 
@@ -44,6 +56,7 @@
 
 - (void) dealloc {
     c4doc_free(_c4doc);
+    c4docobs_free(_obs);
 }
 
 
@@ -157,6 +170,9 @@
             FLDict root = FLValue_AsDict(FLValue_FromTrustedData({body.buf, body.size}));
             [self setRootDict: root orProperties: nil];
         }
+        
+        c4docobs_free(_obs);
+        _obs = c4docobs_create(_c4db, _c4doc->docID, docObserverCallback, (__bridge void*)self);
     }
 }
 
