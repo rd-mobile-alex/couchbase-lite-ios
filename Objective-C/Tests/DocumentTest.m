@@ -77,7 +77,7 @@
     // Premitives:
     [doc setBoolean: YES forKey: @"bool"];
     [doc setDouble: 1.1 forKey: @"double"];
-    [doc setFloat: 1.2 forKey: @"float"];
+    [doc setFloat: 1.2f forKey: @"float"];
     [doc setInteger: 2 forKey: @"integer"];
     
     // Objects:
@@ -162,6 +162,11 @@
     Assert([doc save: &error], @"Saving error: %@", error);
     Assert([doc exists]);
     AssertFalse(doc.isDeleted);
+    
+    doc[@"address"] = @"1 Street";
+    AssertEqualObjects(doc[@"type"], @"profile");
+    AssertEqualObjects(doc[@"name"], @"Scott");
+    AssertEqualObjects(doc[@"address"], @"1 Street");
     
     // Delete:
     Assert([doc deleteDocument: &error], @"Deleting error: %@", error);

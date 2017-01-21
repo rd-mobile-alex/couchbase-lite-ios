@@ -40,7 +40,7 @@
         {"age + 10 == 62",          "{WHERE: ['=', ['+', ['.age'], 10], 62]}"},
         {"foo + 'bar' == 'foobar'", "{WHERE: ['=', ['||', ['.foo'], 'bar'], 'foobar']}"},
     };
-    for (int i = 0; i < sizeof(kTests)/sizeof(kTests[0]); ++i) {
+    for (NSUInteger i = 0; i < sizeof(kTests)/sizeof(kTests[0]); ++i) {
         NSString* pred = @(kTests[i].pred);
         [CBLQuery dumpPredicate: [NSPredicate predicateWithFormat: pred argumentArray: nil]];
         NSString* expectedJson = [CBLQuery json5ToJSON: kTests[i].json5];
@@ -67,8 +67,8 @@
         [contents enumerateLinesUsingBlock: ^(NSString *line, BOOL *stop) {
             CBLDocument* doc = [self.db documentWithID: [NSString stringWithFormat: @"person-%03d", ++n]];
             doc.properties = [NSJSONSerialization JSONObjectWithData: (NSData*)[line dataUsingEncoding: NSUTF8StringEncoding] options: 0 error: NULL];
-            NSError* error;
-            XCTAssert([doc save: &error]);
+            NSError* err;
+            XCTAssert([doc save: &err]);
         }];
         return true;
     }];
@@ -86,10 +86,10 @@
             NSLog(@"Row: docID='%@', sequence=%llu", row.documentID, row.sequence);
             NSString* expectedID = [NSString stringWithFormat: @"person-%03d", n];
             XCTAssertEqualObjects(row.documentID, expectedID);
-            XCTAssertEqual(row.sequence, n);
+            XCTAssertEqual((int)row.sequence, n);
             CBLDocument* doc = row.document;
             XCTAssertEqualObjects(doc.documentID, expectedID);
-            XCTAssertEqual(doc.sequence, n);
+            XCTAssertEqual((int)doc.sequence, n);
         }
         XCTAssertEqual(n, 100);
     }
@@ -108,10 +108,10 @@
             ++n;
             NSLog(@"Row: docID='%@', sequence=%llu", row.documentID, row.sequence);
             XCTAssertEqualObjects(row.documentID, @"person-009");
-            XCTAssertEqual(row.sequence, 9);
+            XCTAssertEqual((int)row.sequence, 9);
             CBLDocument* doc = row.document;
             XCTAssertEqualObjects(doc.documentID, @"person-009");
-            XCTAssertEqual(doc.sequence, 9);
+            XCTAssertEqual((int)doc.sequence, 9);
             }
         }
         XCTAssertEqual(n, 1);

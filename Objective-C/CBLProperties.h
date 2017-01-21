@@ -80,6 +80,10 @@ NS_ASSUME_NONNULL_BEGIN
 /** Check whether a property exists or not by key. */
 - (BOOL) containsObjectForKey: (NSString*)key;
 
+
+/** Revert changes made to the properties. */
+- (void) revert;
+
 @end
 
 /** Super class for CBLDocument and CBLSubdocument that implements CBLProperties protocol to

@@ -53,8 +53,12 @@ static NSNumber* numberProperty(id value) {
 
 
 - (BOOL) booleanForKey: (NSString*)key {
-    id v = _properties ? _properties[key] : nil;
-    return v ? [numberProperty(v) boolValue] : FLValue_AsBool([self fleeceValueForKey: key]);
+    id v = _properties[key];
+    if (v) {
+        id n = numberProperty(v);
+        return n ? [n boolValue] : YES;
+    } else
+        return FLValue_AsBool([self fleeceValueForKey: key]);
 }
 
 
@@ -65,19 +69,19 @@ static NSNumber* numberProperty(id value) {
 
 
 - (double) doubleForKey: (NSString*)key {
-    id v = _properties ? _properties[key] : nil;
+    id v = _properties[key];
     return v ? [numberProperty(v) doubleValue] : FLValue_AsDouble([self fleeceValueForKey: key]);
 }
 
 
 - (float) floatForKey: (NSString*)key {
-    id v = _properties ? _properties[key] : nil;
+    id v = _properties[key];
     return v ? [numberProperty(v) floatValue] : FLValue_AsFloat([self fleeceValueForKey: key]);
 }
 
 
 - (NSInteger) integerForKey: (NSString*)key {
-    id v = _properties ? _properties[key] : nil;
+    id v = _properties[key];
     return v ? [numberProperty(v) integerValue] : FLValue_AsInt([self fleeceValueForKey: key]);
 }
 
@@ -88,7 +92,7 @@ static NSNumber* numberProperty(id value) {
 
 
 - (nullable NSString*) stringForKey: (NSString*)key {
-    id v = _properties ? _properties[key] : nil;
+    id v = _properties[key];
     return v ? $castIf(NSString, v) : slice2string((FLValue_AsString([self fleeceValueForKey: key])));
 }
 
@@ -148,6 +152,8 @@ static NSNumber* numberProperty(id value) {
     id obj = _properties ? _properties[key] : nil;
     if (!obj) {
         auto value = [self fleeceValueForKey: key];
+        if (value == nullptr)
+            return nil;
         obj = [self fleeceValueToObject: value  forKey: key asJson: NO];
         [self cacheValue: obj forKey: key changed: NO];
     }
@@ -160,13 +166,46 @@ static NSNumber* numberProperty(id value) {
     if ([value isKindOfClass: NSDate.class])
         value = [CBLJSON JSONObjectWithDate: value];
     
-    id oldValue = _properties[key];
+    id oldValue = self[key];
     
     if (![value isEqual: oldValue] && value != oldValue) {
         value = [self convertValue: value oldValue: oldValue forKey: key];
         [self cacheValue: value forKey: key changed: YES];
         [self markChanges];
     }
+}
+
+
+- (void) revert {
+    for (NSString* key in _changedNames) {
+        id value = _properties[key];
+        if ([value isKindOfClass: [CBLSubdocument class]]) {
+            CBLSubdocument* subdoc = $cast(CBLSubdocument, value);
+            [subdoc revert];
+            if (!subdoc.root) {
+                [subdoc invalidate];
+                _properties[key] = nil;
+            }
+        } else {
+            if ([value isKindOfClass: [NSArray class]]) {
+                for (id obj in value) {
+                    CBLSubdocument* subdoc = $castIf(CBLSubdocument, obj);
+                    [subdoc invalidate];
+                }
+            }
+            _properties[key] = nil;
+        }
+    }
+    
+    _changedNames = nil;
+    _hasChanges = NO;
+}
+
+
+- (FLSharedKeys) sharedKeys {
+    [NSException raise: NSInternalInconsistencyException
+                format: @"Abstract method -sharedKeys was not overridden"];
+    abort();
 }
 
 
@@ -184,39 +223,6 @@ static NSNumber* numberProperty(id value) {
     
     // Reset hasChanges flag:
     self.hasChanges = NO;
-}
-
-
-- (void) revertChanges {
-    for (NSString* key in _changedNames) {
-        id value = _properties[key];
-        if ([value isKindOfClass: [CBLSubdocument class]]) {
-            CBLSubdocument* subdoc = $cast(CBLSubdocument, value);
-            [subdoc revertChanges];
-            if (!subdoc.root) {
-                [subdoc invalidate];
-                _properties[key] = nil;
-            }
-        } else {
-            if ([value isKindOfClass: [NSArray class]]) {
-                for (id obj in value) {
-                    CBLSubdocument* subdoc = $castIf(CBLSubdocument, obj);
-                    [subdoc invalidate];
-                }
-            }
-            _properties[key] = nil;
-        }
-        
-    }
-    _changedNames = nil;
-    _hasChanges = NO;
-}
-
-
-- (FLSharedKeys) sharedKeys {
-    [NSException raise: NSInternalInconsistencyException
-                format: @"Abstract method -sharedKeys was not overridden"];
-    abort();
 }
 
 
@@ -245,7 +251,7 @@ static NSNumber* numberProperty(id value) {
         _changedNames = [NSMutableSet set];
     
     for (NSString* key in keys) {
-        if (_properties[key] != nil && ![_changedNames containsObject: key])
+        if (_properties[key] != nil)
             [_changedNames addObject: key];
     }
     [self markChanges];
@@ -278,15 +284,15 @@ static NSNumber* numberProperty(id value) {
         NSArray* oldArray = $castIf(NSArray, oldValue);
         NSArray* nuArray = (NSArray*)value;
         NSMutableArray* result = [NSMutableArray arrayWithCapacity: nuArray.count];
-        for (int i = 0; i < nuArray.count; i++) {
-            id oldValue = oldArray && i < oldArray.count ? oldArray[i] : nil;
-            id nuValue = nuArray[i];
-            result[i] = [self convertValue: nuValue oldValue: oldValue forKey: key];
+        for (NSUInteger i = 0; i < nuArray.count; i++) {
+            id o = oldArray && i < oldArray.count ? oldArray[i] : nil;
+            id n = nuArray[i];
+            result[i] = [self convertValue: n oldValue: o forKey: key];
         }
         
         // Invalidate:
         if (oldArray && oldArray.count > nuArray.count) {
-            for (int i = (int)nuArray.count; i < oldArray.count; i++) {
+            for (NSUInteger i = nuArray.count; i < oldArray.count; i++) {
                 CBLSubdocument* oldSubdoc = $castIf(CBLSubdocument, oldArray[i]);
                 [oldSubdoc invalidate];
             }
@@ -297,9 +303,9 @@ static NSNumber* numberProperty(id value) {
         return result;
     } else {
         CBLSubdocument* nuSubdoc = $castIf(CBLSubdocument, value);
-        [self attachSubdocument: nuSubdoc forKey: key];
-        
-        if ([oldValue isKindOfClass: [CBLSubdocument class]])
+        if (nuSubdoc)
+            [self attachSubdocument: nuSubdoc forKey: key];
+        if (oldValue != nuSubdoc && [oldValue isKindOfClass: [CBLSubdocument class]])
             [oldValue invalidate];
     }
     return value;
@@ -307,37 +313,31 @@ static NSNumber* numberProperty(id value) {
 
 
 - (NSDictionary*) currentPropertiesAsJson: (BOOL)asJson {
-    NSMutableDictionary* result;
-    NSMutableSet *changedNames = [_changedNames mutableCopy];
+    NSMutableDictionary* result = [_properties mutableCopy];
+    if (asJson) {
+        for (NSString* key in _properties) {
+            result[key] = [self jsonValueForValue: _properties[key]];
+        }
+    }
+    
     if (_root) {
         int count = FLDict_Count(_root);
-        result = [NSMutableDictionary dictionaryWithCapacity: count];
+        if (!result)
+            result = [NSMutableDictionary dictionaryWithCapacity: count];
         if (count > 0) {
             FLDictIterator iter;
             FLDictIterator_Begin(_root, &iter);
             do {
                 NSString* key = [self fleeceValueToKeyString: FLDictIterator_GetKey(&iter)];
-                id value = _properties[key];
-                if (value) {
-                    if (asJson)
-                        value = [self jsonValueForValue: value];
-                    [changedNames removeObject: key];
-                } else {
-                    value = [self fleeceValueToObject: FLDictIterator_GetValue(&iter)
-                                               forKey: key asJson: asJson];
-                    [self cacheValue: value forKey: key changed: NO];
+                if (![_changedNames containsObject: key] && !_properties[key]) {
+                    id value = [self fleeceValueToObject: FLDictIterator_GetValue(&iter)
+                                                  forKey: key asJson: asJson];
+                    if (value) {
+                        [self cacheValue: value forKey: key changed: NO];
+                        result[key] = value;
+                    }
                 }
-                result[key] = value;
             } while (FLDictIterator_Next(&iter));
-        }
-        return result;
-    }
-    if (changedNames.count > 0) {
-        if (!result)
-            result = [NSMutableDictionary dictionaryWithCapacity: changedNames.count];
-        for (NSString* key in _changedNames) {
-            id value = _properties[key];
-            result[key] = asJson ? [self jsonValueForValue: value] : value;
         }
     }
     return result;
@@ -347,6 +347,8 @@ static NSNumber* numberProperty(id value) {
 - (id) jsonValueForValue: (id)value {
     if ([value conformsToProtocol: @protocol(CBLJSONEncoding)]) {
         return [(id<CBLJSONEncoding>)value encodeAsJSON];
+    } else if ([value isKindOfClass: [NSDate class]]) {
+        return [CBLJSON JSONObjectWithDate: value];
     } else if ([value isKindOfClass: [NSDictionary class]]) {
         NSDictionary* dict = $cast(NSDictionary, value);
         NSMutableDictionary* result = [dict mutableCopy];
@@ -397,12 +399,12 @@ static NSNumber* numberProperty(id value) {
     if (!_properties)
         return;
     
-    NSDictionary* props = _properties;
+    NSDictionary* properties = _properties;
     _properties = [NSMutableDictionary dictionary];
     
     // Update root to all subdocuments:
-    for (NSString* key in props) {
-        id value = props[key];
+    for (NSString* key in properties) {
+        id value = properties[key];
         if ([value isKindOfClass: [CBLSubdocument class]]) {
             CBLSubdocument* subdoc = (CBLSubdocument*)value;
             FLValue nuValue = _root ? [self fleeceValueForKey: key] : nullptr;
@@ -420,11 +422,11 @@ static NSNumber* numberProperty(id value) {
                                               forKey: key asJson: NO] mutableCopy];
             BOOL completed = YES;
             if (nuArray) {
-                for (int i = 0; i < nuArray.count; i++) {
-                    id oldValue = oldArray && i < oldArray.count ? oldArray[i] : nil;
-                    id nuValue = nuArray[i];
-                    CBLSubdocument* oldSubdoc = $castIf(CBLSubdocument, oldValue);
-                    CBLSubdocument* nuSubdoc = $castIf(CBLSubdocument, nuValue);
+                for (NSUInteger i = 0; i < nuArray.count; i++) {
+                    id o = oldArray && i < oldArray.count ? oldArray[i] : nil;
+                    id n = nuArray[i];
+                    CBLSubdocument* oldSubdoc = $castIf(CBLSubdocument, o);
+                    CBLSubdocument* nuSubdoc = $castIf(CBLSubdocument, n);
                     if (oldSubdoc && nuSubdoc) { // Update only both are subdocs, otherwise cancel.
                         oldSubdoc.root = nuSubdoc.root;
                         nuArray[i] = oldSubdoc;
@@ -445,6 +447,9 @@ static NSNumber* numberProperty(id value) {
             }
         }
     }
+    
+    if (_properties.count == 0)
+        _properties = nil;
 }
 
 
@@ -463,9 +468,10 @@ static NSNumber* numberProperty(id value) {
 
 
 - (void) attachSubdocument: (CBLSubdocument*)subdoc forKey: (NSString*)key {
-    Assert(!subdoc.parent || subdoc.parent == self,
+    id parent = subdoc.parent;
+    Assert(!parent || parent == self,
            @"Subdocument has already been set to a document or a subdocument.");
-    if (!subdoc.parent)
+    if (!parent)
         subdoc.parent = self;
     [subdoc setOnMutate: [self onMutateBlockForKey: key]];
 }
@@ -521,7 +527,7 @@ static NSNumber* numberProperty(id value) {
                     FLArrayIterator iter;
                     FLArrayIterator_Begin(array, &iter);
                     do {
-                        auto value = FLArrayIterator_GetValue(&iter);
+                        value = FLArrayIterator_GetValue(&iter);
                         id obj = [self fleeceValueToObject: value forKey: key asJson: asJson];
                         [result addObject: obj];
                     } while (FLArrayIterator_Next(&iter));
@@ -538,11 +544,8 @@ static NSNumber* numberProperty(id value) {
 
 - (NSString*) fleeceValueToKeyString: (FLValue)value {
     NSString* key = nil;
-    if (FLValue_IsInteger(value)) {
-        auto encKey = FLValue_AsInt(value);
-        auto k = FLSharedKey_GetKeyString(self.sharedKeys, (int)encKey, nil);
-        key = slice2string(k);
-    }
+    if (FLValue_IsInteger(value))
+        key = slice2string(FLSharedKey_GetKeyString(self.sharedKeys, (int)FLValue_AsInt(value), nil));
     if (!key)
         key = slice2string(FLValue_AsString(value));
     return key;

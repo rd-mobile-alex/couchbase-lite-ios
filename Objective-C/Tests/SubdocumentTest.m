@@ -153,7 +153,7 @@
     
     doc1 = [[self.db copy] documentWithID: @"doc1"];
     NSArray* subs = doc1[@"subs"];
-    AssertEqual(subs.count, 3);
+    AssertEqual(subs.count, 3u);
     AssertEqualObjects(((CBLSubdocument*)subs[0]).properties, @{});
     AssertEqualObjects(((CBLSubdocument*)subs[1]).properties, @{@"name": @"sub2"});
     AssertEqualObjects(((CBLSubdocument*)subs[2]).properties, @{@"name": @"sub3"});
